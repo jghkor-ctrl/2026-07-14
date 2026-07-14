@@ -1,5 +1,5 @@
 const drawBtn = document.getElementById("drawBtn");
-const againBtn = document.getElementById("againBtn");
+const reloadBtn = document.getElementById("reloadBtn");
 const clearBtn = document.getElementById("clearBtn");
 const mainBalls = document.getElementById("mainBalls");
 const bonusBall = document.getElementById("bonusBall");
@@ -8,194 +8,189 @@ const status = document.getElementById("status");
 const historyList = document.getElementById("historyList");
 const ballTemplate = document.getElementById("ballTemplate");
 
-const STORAGE_KEY = "lotto-history-v1";
-const TOTAL_NUMBERS = 45;
-const MAIN_COUNT = 6;
-
-let history = loadHistory();
-let currentRound = history.length + 1;
 let drawLock = false;
-
-function loadHistory() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveHistory() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
-}
-
-function createEmptyBalls() {
-  mainBalls.innerHTML = "";
-  for (let i = 0; i < MAIN_COUNT; i += 1) {
-    const ball = ballTemplate.content.firstElementChild.cloneNode(true);
-    ball.classList.add("is-pending");
-    ball.textContent = "—";
-    mainBalls.appendChild(ball);
-  }
-  bonusBall.textContent = "?";
-}
-
-function sampleUniqueNumbers(count, exclude = new Set()) {
-  const pool = [];
-  for (let i = 1; i <= TOTAL_NUMBERS; i += 1) {
-    if (!exclude.has(i)) pool.push(i);
-  }
-
-  for (let i = pool.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
-
-  return pool.slice(0, count).sort((a, b) => a - b);
-}
+let history = [];
 
 function setStatus(text) {
   status.textContent = text;
 }
 
-function renderHistory() {
+function setButtonsDisabled(disabled) {
+  drawBtn.disabled = disabled;
+  reloadBtn.disabled = disabled;
+  clearBtn.disabled = disabled;
+}
+
+function createEmptyBalls() {
+  mainBalls.innerHTML = "";
+  for (let i = 0; i < 6; i += 1) {
+    const ball = ballTemplate.content.firstElementChild.cloneNode(true);
+    ball.classList.add("is-pending");
+    ball.textContent = "-";
+    mainBalls.appendChild(ball);
+  }
+  bonusBall.textContent = "?";
+}
+
+function renderBalls(numbers, bonusNumber) {
+  const balls = [...mainBalls.children];
+  balls.forEach((ball, index) => {
+    ball.classList.remove("is-pending");
+    ball.classList.add("is-highlight");
+    ball.textContent = numbers[index];
+  });
+  bonusBall.textContent = bonusNumber;
+}
+
+function formatDrawLabel(draw) {
+  if (!draw?.round_number) {
+    return "Draw result";
+  }
+  return `${draw.round_number} round result`;
+}
+
+function renderHistory(items) {
   historyList.innerHTML = "";
 
-  if (history.length === 0) {
+  if (!items.length) {
     const empty = document.createElement("li");
     empty.className = "history-item";
-    empty.textContent = "아직 기록이 없습니다. 첫 추첨을 시작해 보세요.";
+    empty.textContent = "No saved draws yet. Start the first draw.";
     historyList.appendChild(empty);
     return;
   }
 
-  history
-    .slice()
-    .reverse()
-    .forEach((entry) => {
-      const item = document.createElement("li");
-      item.className = "history-item";
+  items.forEach((entry) => {
+    const item = document.createElement("li");
+    item.className = "history-item";
 
-      const meta = document.createElement("div");
-      meta.className = "history-meta";
-      meta.textContent = `${entry.round}회차`;
+    const meta = document.createElement("div");
+    meta.className = "history-meta";
+    meta.textContent = `${entry.round_number} round`;
 
-      const balls = document.createElement("div");
-      balls.className = "history-balls";
+    const balls = document.createElement("div");
+    balls.className = "history-balls";
 
-      entry.main.forEach((number) => {
-        const chip = document.createElement("span");
-        chip.className = "history-chip";
-        chip.textContent = number;
-        balls.appendChild(chip);
-      });
+    const mainNumbers = Array.isArray(entry.main_numbers) ? entry.main_numbers : [];
 
-      const bonus = document.createElement("span");
-      bonus.className = "history-chip bonus";
-      bonus.textContent = `+ ${entry.bonus}`;
-      balls.appendChild(bonus);
-
-      item.append(meta, balls);
-      historyList.appendChild(item);
+    mainNumbers.forEach((number) => {
+      const chip = document.createElement("span");
+      chip.className = "history-chip";
+      chip.textContent = number;
+      balls.appendChild(chip);
     });
-}
 
-function updateStage(mainNumbers, bonusNumber) {
-  const balls = [...mainBalls.children];
-  balls.forEach((ball, index) => {
-    ball.classList.remove("is-pending", "is-highlight");
-    ball.textContent = mainNumbers[index];
-    ball.classList.add("is-highlight");
+    const bonus = document.createElement("span");
+    bonus.className = "history-chip bonus";
+    bonus.textContent = `+ ${entry.bonus_number}`;
+    balls.appendChild(bonus);
+
+    item.append(meta, balls);
+    historyList.appendChild(item);
   });
-  bonusBall.textContent = bonusNumber;
-  roundLabel.textContent = `${currentRound}회차 결과`;
 }
 
-function animateDraw() {
-  if (drawLock) return;
-  drawLock = true;
-  drawBtn.disabled = true;
-  againBtn.disabled = true;
-  setStatus("번호를 섞는 중입니다.");
-  createEmptyBalls();
+async function fetchHistory() {
+  setButtonsDisabled(true);
+  setStatus("Loading draw history...");
 
-  const mainNumbers = sampleUniqueNumbers(MAIN_COUNT);
-  const remaining = new Set(mainNumbers);
-  const bonusNumber = sampleUniqueNumbers(1, remaining)[0];
+  try {
+    const response = await fetch("/api/draw", {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    });
 
-  const shuffled = sampleUniqueNumbers(TOTAL_NUMBERS);
-  let tick = 0;
+    const payload = await response.json();
 
-  const interval = setInterval(() => {
-    const ball = mainBalls.children[tick % MAIN_COUNT];
-    ball.classList.remove("is-pending");
-    ball.textContent = shuffled[tick % shuffled.length];
-    tick += 1;
-
-    if (tick >= MAIN_COUNT * 2) {
-      clearInterval(interval);
-
-      mainNumbers.forEach((number, index) => {
-        setTimeout(() => {
-          const ballEl = mainBalls.children[index];
-          ballEl.classList.remove("is-pending");
-          ballEl.textContent = number;
-        }, index * 120);
-      });
-
-      setTimeout(() => {
-        bonusBall.textContent = bonusNumber;
-        setStatus(
-          `완료! ${mainNumbers.join(", ")} | 보너스 ${bonusNumber}`
-        );
-        roundLabel.textContent = `${currentRound}회차 결과`;
-
-        history.push({
-          round: currentRound,
-          main: mainNumbers,
-          bonus: bonusNumber,
-          at: new Date().toISOString(),
-        });
-        if (history.length > 10) {
-          history = history.slice(history.length - 10);
-        }
-        saveHistory();
-        renderHistory();
-
-        currentRound += 1;
-        drawLock = false;
-        drawBtn.disabled = false;
-        againBtn.disabled = false;
-      }, 900);
+    if (!response.ok) {
+      throw new Error(payload?.error || "Failed to load draw history.");
     }
-  }, 120);
+
+    history = payload.draws || [];
+    renderHistory(history);
+
+    if (history.length > 0) {
+      const latest = history[0];
+      roundLabel.textContent = formatDrawLabel(latest);
+      renderBalls(latest.main_numbers, latest.bonus_number);
+      setStatus(`Latest result: ${latest.main_numbers.join(", ")} | Bonus ${latest.bonus_number}`);
+    } else {
+      createEmptyBalls();
+      roundLabel.textContent = "Not drawn yet";
+      setStatus("Press the button to start drawing.");
+    }
+  } catch (error) {
+    createEmptyBalls();
+    roundLabel.textContent = "Connection failed";
+    setStatus(error.message);
+  } finally {
+    setButtonsDisabled(false);
+  }
 }
 
-function resetStage() {
-  if (drawLock) return;
+async function drawLottery() {
+  if (drawLock) {
+    return;
+  }
+
+  drawLock = true;
+  setButtonsDisabled(true);
+  setStatus("Shuffling numbers...");
   createEmptyBalls();
-  roundLabel.textContent = "아직 추첨 전";
-  setStatus("버튼을 눌러 추첨을 시작하세요.");
+
+  const shimmer = setInterval(() => {
+    const numbers = Array.from({ length: 6 }, () => Math.floor(Math.random() * 45) + 1);
+    [...mainBalls.children].forEach((ball, index) => {
+      ball.classList.remove("is-pending");
+      ball.textContent = numbers[index];
+    });
+  }, 110);
+
+  try {
+    const response = await fetch("/api/draw", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload?.error || "Draw failed.");
+    }
+
+    const draw = payload.draw;
+    clearInterval(shimmer);
+    renderBalls(draw.main_numbers, draw.bonus_number);
+    roundLabel.textContent = formatDrawLabel(draw);
+    setStatus(`Done: ${draw.main_numbers.join(", ")} | Bonus ${draw.bonus_number}`);
+
+    history = [draw, ...history].slice(0, 10);
+    renderHistory(history);
+  } catch (error) {
+    clearInterval(shimmer);
+    setStatus(error.message);
+  } finally {
+    drawLock = false;
+    setButtonsDisabled(false);
+  }
 }
 
-drawBtn.addEventListener("click", animateDraw);
-againBtn.addEventListener("click", animateDraw);
-
-clearBtn.addEventListener("click", () => {
-  history = [];
-  currentRound = 1;
-  saveHistory();
-  renderHistory();
-  resetStage();
-});
+drawBtn.addEventListener("click", drawLottery);
+reloadBtn.addEventListener("click", fetchHistory);
+clearBtn.addEventListener("click", fetchHistory);
 
 document.addEventListener("keydown", (event) => {
   if (event.code === "Space" && !drawLock) {
     event.preventDefault();
-    animateDraw();
+    drawLottery();
   }
 });
 
 createEmptyBalls();
-renderHistory();
-resetStage();
+fetchHistory();

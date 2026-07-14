@@ -6,7 +6,7 @@
     <title>로또 추첨기</title>
     <meta
       name="description"
-      content="로또 6/45 자동 추첨기. 당첨 번호와 보너스 번호를 시각적으로 확인할 수 있습니다."
+      content="로또 6/45 자동 추첨기. 결과는 Supabase에 저장되고 Vercel 환경변수로 연결됩니다."
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -19,13 +19,13 @@
         <p class="eyebrow">LOTTO 6/45</p>
         <h1>오늘의 행운을 한 번에 뽑아보세요.</h1>
         <p class="lead">
-          1부터 45까지의 숫자 중 중복 없이 6개를 뽑고, 보너스 번호까지 함께 보여주는
-          깔끔한 로또 추첨기입니다.
+          1부터 45까지의 숫자 중 중복 없이 6개를 뽑고, 보너스 번호까지 함께 저장합니다.
+          결과는 Supabase 데이터베이스에 남습니다.
         </p>
 
         <div class="controls" aria-label="로또 추첨 설정">
           <button id="drawBtn" class="primary-btn" type="button">추첨하기</button>
-          <button id="againBtn" class="secondary-btn" type="button">다시 섞기</button>
+          <button id="reloadBtn" class="secondary-btn" type="button">기록 불러오기</button>
         </div>
       </section>
 
@@ -49,7 +49,7 @@
       <section class="history-panel">
         <div class="panel-head">
           <h3>최근 추첨 기록</h3>
-          <button id="clearBtn" class="text-btn" type="button">기록 지우기</button>
+          <button id="clearBtn" class="text-btn" type="button">새로고침</button>
         </div>
         <ol id="historyList" class="history-list"></ol>
       </section>
