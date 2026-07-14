@@ -1,6 +1,15 @@
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const SUPABASE_TABLE = process.env.SUPABASE_TABLE || "lotto_draws";
+function readEnv(name) {
+  const value = process.env[name];
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.split(/\r?\n/)[0].trim();
+}
+
+const SUPABASE_URL = readEnv("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = readEnv("SUPABASE_SERVICE_ROLE_KEY");
+const SUPABASE_TABLE = readEnv("SUPABASE_TABLE") || "lotto_draws";
 const LOTTO_MAX = 45;
 const LOTTO_MAIN_COUNT = 6;
 
