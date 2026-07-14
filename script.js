@@ -8,6 +8,7 @@ const status = document.getElementById("status");
 const historyList = document.getElementById("historyList");
 const ballTemplate = document.getElementById("ballTemplate");
 
+const LOCAL_HISTORY_KEY = "lotto-local-history-v1";
 let drawLock = false;
 let history = [];
 
@@ -30,6 +31,50 @@ function createEmptyBalls() {
     mainBalls.appendChild(ball);
   }
   bonusBall.textContent = "?";
+}
+
+function loadLocalHistory() {
+  try {
+    const raw = localStorage.getItem(LOCAL_HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalHistory(items) {
+  try {
+    localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(items));
+  } catch {
+    // Ignore storage failures and keep the app usable.
+  }
+}
+
+function nextLocalRound(items) {
+  if (!items.length) {
+    return 1;
+  }
+  return Math.max(...items.map((item) => Number(item.round_number) || 0)) + 1;
+}
+
+function sampleLocalDraw(items) {
+  const pool = Array.from({ length: 45 }, (_, index) => index + 1);
+
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+
+  const main_numbers = pool.slice(0, 6).sort((a, b) => a - b);
+  const remaining = pool.slice(6);
+  const bonus_number = remaining[Math.floor(Math.random() * remaining.length)];
+
+  return {
+    round_number: nextLocalRound(items),
+    main_numbers,
+    bonus_number,
+    created_at: new Date().toISOString(),
+  };
 }
 
 function renderBalls(numbers, bonusNumber) {
@@ -95,20 +140,24 @@ async function fetchHistory() {
   setStatus("Loading draw history...");
 
   try {
-    const response = await fetch("/api/draw", {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
-    });
+    if (window.location.protocol === "file:") {
+      history = loadLocalHistory();
+    } else {
+      const response = await fetch("/api/draw", {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+        },
+      });
 
-    const payload = await response.json();
+      const payload = await response.json();
 
-    if (!response.ok) {
-      throw new Error(payload?.error || "Failed to load draw history.");
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load draw history.");
+      }
+
+      history = payload.draws || [];
     }
-
-    history = payload.draws || [];
     renderHistory(history);
 
     if (history.length > 0) {
@@ -122,9 +171,19 @@ async function fetchHistory() {
       setStatus("Press the button to start drawing.");
     }
   } catch (error) {
-    createEmptyBalls();
-    roundLabel.textContent = "Connection failed";
-    setStatus(error.message);
+    history = loadLocalHistory();
+    renderHistory(history);
+
+    if (history.length > 0) {
+      const latest = history[0];
+      roundLabel.textContent = formatDrawLabel(latest);
+      renderBalls(latest.main_numbers, latest.bonus_number);
+      setStatus(`Local mode: ${latest.main_numbers.join(", ")} | Bonus ${latest.bonus_number}`);
+    } else {
+      createEmptyBalls();
+      roundLabel.textContent = "Not drawn yet";
+      setStatus(`Local mode: ${error.message}`);
+    }
   } finally {
     setButtonsDisabled(false);
   }
@@ -149,28 +208,43 @@ async function drawLottery() {
   }, 110);
 
   try {
-    const response = await fetch("/api/draw", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({}),
-    });
+    let draw;
 
-    const payload = await response.json();
+    if (window.location.protocol === "file:") {
+      draw = sampleLocalDraw(history);
+      history = [draw, ...history].slice(0, 10);
+      saveLocalHistory(history);
+    } else {
+      try {
+        const response = await fetch("/api/draw", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({}),
+        });
 
-    if (!response.ok) {
-      throw new Error(payload?.error || "Draw failed.");
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "Draw failed.");
+        }
+
+        draw = payload.draw;
+        history = [draw, ...history].slice(0, 10);
+      } catch {
+        draw = sampleLocalDraw(history);
+        history = [draw, ...history].slice(0, 10);
+        saveLocalHistory(history);
+      }
     }
 
-    const draw = payload.draw;
     clearInterval(shimmer);
     renderBalls(draw.main_numbers, draw.bonus_number);
     roundLabel.textContent = formatDrawLabel(draw);
     setStatus(`Done: ${draw.main_numbers.join(", ")} | Bonus ${draw.bonus_number}`);
 
-    history = [draw, ...history].slice(0, 10);
     renderHistory(history);
   } catch (error) {
     clearInterval(shimmer);
@@ -183,7 +257,19 @@ async function drawLottery() {
 
 drawBtn.addEventListener("click", drawLottery);
 reloadBtn.addEventListener("click", fetchHistory);
-clearBtn.addEventListener("click", fetchHistory);
+clearBtn.addEventListener("click", () => {
+  if (window.location.protocol === "file:") {
+    history = [];
+    saveLocalHistory(history);
+    renderHistory(history);
+    createEmptyBalls();
+    roundLabel.textContent = "Not drawn yet";
+    setStatus("Press the button to start drawing.");
+    return;
+  }
+
+  fetchHistory();
+});
 
 document.addEventListener("keydown", (event) => {
   if (event.code === "Space" && !drawLock) {
