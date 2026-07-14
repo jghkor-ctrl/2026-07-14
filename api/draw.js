@@ -71,13 +71,6 @@ async function supabaseFetch(path, options = {}) {
   return payload;
 }
 
-async function getLatestRound() {
-  const rows = await supabaseFetch(
-    `/rest/v1/${SUPABASE_TABLE}?select=round_number&order=round_number.desc&limit=1`
-  );
-  return rows?.[0]?.round_number || 0;
-}
-
 async function listDraws(limit = 10) {
   return supabaseFetch(
     `/rest/v1/${SUPABASE_TABLE}?select=round_number,main_numbers,bonus_number,created_at&order=round_number.desc&limit=${limit}`
@@ -85,9 +78,7 @@ async function listDraws(limit = 10) {
 }
 
 async function insertDraw(draw) {
-  const latestRound = await getLatestRound();
   const payload = {
-    round_number: latestRound + 1,
     main_numbers: draw.mainNumbers,
     bonus_number: draw.bonusNumber,
   };
