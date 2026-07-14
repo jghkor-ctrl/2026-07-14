@@ -4,7 +4,32 @@ function readEnv(name) {
     return "";
   }
 
-  return value.split(/\r?\n/)[0].trim();
+  const raw = value.trim();
+
+  if (name === "SUPABASE_URL") {
+    const urlMatch = raw.match(/https?:\/\/[^\s"'`]+/i);
+    return (urlMatch?.[0] || raw).trim();
+  }
+
+  const jwtMatches = raw.match(/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g);
+  if (jwtMatches?.length) {
+    const serviceRoleJwt = jwtMatches.find((token) => {
+      try {
+        const payloadPart = token.split(".")[1];
+        const normalized = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+        const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+        const payloadJson = Buffer.from(padded, "base64").toString("utf8");
+        const payload = JSON.parse(payloadJson);
+        return payload.role === "service_role";
+      } catch {
+        return false;
+      }
+    });
+
+    return (serviceRoleJwt || jwtMatches[0]).trim();
+  }
+
+  return raw.split(/\r?\n/)[0].trim();
 }
 
 const SUPABASE_URL = readEnv("SUPABASE_URL");
